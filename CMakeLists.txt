@@ -29,10 +29,10 @@ set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3")
 set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -fsanitize=address,undefined,leak -fno-omit-frame-pointer")
 set(CMAKE_EXE_LINKER_FLAGS_DEBUG "${CMAKE_EXE_LINKER_FLAGS_DEBUG} -fsanitize=address,undefined,leak")
 
-add_executable(wanax main.c wanax.c wanax.h)
+add_executable(wanax examples/wanax.c src/wanax.c include/wanax.h)
 
 enable_testing()
-add_executable(wanax_test test.c wanax.c wanax.h)
+add_executable(wanax_test src/test/test.c src/wanax.c include/wanax.h)
 add_test(NAME wanax_test COMMAND wanax_test)
 
 install(TARGETS wanax
