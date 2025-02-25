@@ -1,58 +1,85 @@
 import numpy as np
 from numba import njit, prange
 
+import numpy as np
+from numba import njit, prange
+
+
+
 @njit
-def pad_array(data, pad_width):
-    if data.ndim == 1:
-        return np.pad(data, pad_width, mode='edge')
-    elif data.ndim == 2:
-        return np.pad(data, ((pad_width, pad_width), (pad_width, pad_width)), mode='edge')
-    else:  # 3D
-        return np.pad(data, ((pad_width, pad_width), (pad_width, pad_width), (pad_width, pad_width)), mode='edge')
+def pad_3d(data, pad_width):
+    padded_shape = (data.shape[0] + 2*pad_width,
+                    data.shape[1] + 2*pad_width,
+                    data.shape[2] + 2*pad_width)
+    padded = np.zeros(padded_shape, dtype=data.dtype)
+
+    # Copy internal data
+    padded[pad_width:-pad_width, pad_width:-pad_width, pad_width:-pad_width] = data
+
+    # Edge padding
+    # Z faces
+    padded[:pad_width, pad_width:-pad_width, pad_width:-pad_width] = data[0:1, :, :]
+    padded[-pad_width:, pad_width:-pad_width, pad_width:-pad_width] = data[-1:, :, :]
+
+    # Y faces
+    padded[:, :pad_width, pad_width:-pad_width] = padded[:, pad_width:pad_width+1, pad_width:-pad_width]
+    padded[:, -pad_width:, pad_width:-pad_width] = padded[:, -pad_width-1:-pad_width, pad_width:-pad_width]
+
+    # X faces
+    padded[:, :, :pad_width] = padded[:, :, pad_width:pad_width+1]
+    padded[:, :, -pad_width:] = padded[:, :, -pad_width-1:-pad_width]
+
+    return padded
 
 @njit(parallel=True)
 def erosion(data, radius=1):
-    padded = pad_array(data, radius)
+    padded = pad_3d(data, radius)
     result = np.zeros_like(data)
 
-    if data.ndim == 1:
-        for i in prange(data.shape[0]):
-            window = padded[i:i + 2*radius + 1]
-            result[i] = np.min(window)
-    elif data.ndim == 2:
-        for y in prange(data.shape[0]):
-            for x in range(data.shape[1]):
-                window = padded[y:y + 2*radius + 1, x:x + 2*radius + 1]
-                result[y, x] = np.min(window)
-    else:  # 3D
-        for z in prange(data.shape[0]):
-            for y in range(data.shape[1]):
-                for x in range(data.shape[2]):
-                    window = padded[z:z + 2*radius + 1, y:y + 2*radius + 1, x:x + 2*radius + 1]
-                    result[z, y, x] = np.min(window)
+    for z in prange(data.shape[0]):
+        for y in range(data.shape[1]):
+            for x in range(data.shape[2]):
+                window = padded[z:z + 2*radius + 1,
+                         y:y + 2*radius + 1,
+                         x:x + 2*radius + 1]
+                result[z, y, x] = np.min(window)
     return result
 
 @njit(parallel=True)
 def dilation(data, radius=1):
-    padded = pad_array(data, radius)
+    padded = pad_3d(data, radius)
     result = np.zeros_like(data)
 
-    if data.ndim == 1:
-        for i in prange(data.shape[0]):
-            window = padded[i:i + 2*radius + 1]
-            result[i] = np.max(window)
-    elif data.ndim == 2:
-        for y in prange(data.shape[0]):
-            for x in range(data.shape[1]):
-                window = padded[y:y + 2*radius + 1, x:x + 2*radius + 1]
-                result[y, x] = np.max(window)
-    else:  # 3D
-        for z in prange(data.shape[0]):
-            for y in range(data.shape[1]):
-                for x in range(data.shape[2]):
-                    window = padded[z:z + 2*radius + 1, y:y + 2*radius + 1, x:x + 2*radius + 1]
-                    result[z, y, x] = np.max(window)
+    for z in prange(data.shape[0]):
+        for y in range(data.shape[1]):
+            for x in range(data.shape[2]):
+                window = padded[z:z + 2*radius + 1,
+                         y:y + 2*radius + 1,
+                         x:x + 2*radius + 1]
+                result[z, y, x] = np.max(window)
     return result
+
+@njit
+def opening_njit(data, radius=1):
+    return dilation(erosion(data, radius), radius)
+
+@njit
+def skeletonize(binary_data):
+    skeleton = np.copy(binary_data)
+    changed = True
+
+    while changed:
+        changed = False
+        eroded = erosion(skeleton, 1)
+        opened = opening_njit(skeleton, 1)
+        endpoints = skeleton - eroded
+        skeleton_new = np.where((skeleton - opened) > 0, endpoints, skeleton)
+
+        if not np.array_equal(skeleton, skeleton_new):
+            changed = True
+            skeleton = skeleton_new
+
+    return skeleton
 
 def opening(data, radius=1):
     return dilation(erosion(data, radius), radius)
@@ -143,21 +170,3 @@ def distance_transform(binary_data):
                                           dist)
 
     return result
-
-@njit(parallel=True)
-def skeletonize(binary_data):
-    skeleton = np.copy(binary_data)
-    changed = True
-
-    while changed:
-        changed = False
-        eroded = erosion(skeleton, 1)
-        opened = opening(skeleton, 1)
-        endpoints = skeleton - eroded
-        skeleton_new = np.where((skeleton - opened) > 0, endpoints, skeleton)
-
-        if not np.array_equal(skeleton, skeleton_new):
-            changed = True
-            skeleton = skeleton_new
-
-    return skeleton

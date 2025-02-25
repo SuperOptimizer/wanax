@@ -219,19 +219,52 @@ def inverse_haar_wavelet_3d(data):
     return result
 
 def wavelet_denoise_3d(data, threshold=0.1):
-    # Normalize input
-    data_norm = (data - data.min()) / (data.max() - data.min())
+    # Create a mask of zeros
+    zero_mask = (data == 0)
+
+    # Make a copy to avoid modifying the original data
+    data_copy = data.copy()
+
+    # Skip denoising if all values are zeros
+    if np.all(zero_mask):
+        return data_copy
+
+    # Get non-zero values for statistics
+    non_zero_data = data_copy[~zero_mask]
+
+    # Normalize input using only non-zero values for statistics
+    min_val = non_zero_data.min()
+    max_val = non_zero_data.max()
+
+    if max_val > min_val:
+        # Normalize all data using non-zero statistics
+        data_norm = (data_copy - min_val) / (max_val - min_val)
+    else:
+        data_norm = data_copy.copy()
+        data_norm[~zero_mask] = 1.0
+
+    # Keep zeros as zeros in the normalized data
+    data_norm[zero_mask] = 0
 
     # Forward transform
     coeffs = haar_wavelet_transform_3d(data_norm)
 
-    # Threshold coefficients
-    coeffs[np.abs(coeffs) < threshold * np.max(np.abs(coeffs))] = 0
+    # Find non-zero coefficients for thresholding
+    non_zero_coeff_mask = np.abs(coeffs) > 1e-10  # Small epsilon to avoid numerical issues
+
+    if np.any(non_zero_coeff_mask):
+        max_coeff = np.max(np.abs(coeffs[non_zero_coeff_mask]))
+        # Apply threshold
+        coeffs[np.abs(coeffs) < threshold * max_coeff] = 0
 
     # Inverse transform
     denoised = inverse_haar_wavelet_3d(coeffs)
 
     # Restore original range
-    denoised = denoised * (data.max() - data.min()) + data.min()
+    if max_val > min_val:
+        denoised = denoised * (max_val - min_val) + min_val
+
+    # Restore zeros at their original positions
+    denoised[zero_mask] = 0
 
     return denoised.astype(data.dtype)

@@ -1,5 +1,13 @@
 import numpy as np
 from numba import njit, prange
+import numpy as np
+from numba import jit
+import numpy.typing as npt
+from typing import Tuple
+
+import numpy as np
+from numba import jit
+import numpy.typing as npt
 
 @njit
 def pad_array(data, pad_width):
@@ -280,11 +288,14 @@ def avgpool_denoise_3d(volume_u8, kernel=3):
     depth, height, width = volume_u8.shape
     result = np.zeros_like(volume_u8)
     half = kernel // 2
+    kernel_size = 2 * half + 1
+    kernel_volume = kernel_size ** 3
 
     for z in prange(depth):
         for y in range(height):
             for x in range(width):
-                values = []
+                value_sum = 0
+                count = 0
 
                 for zi in range(-half, half + 1):
                     for yi in range(-half, half + 1):
@@ -294,10 +305,11 @@ def avgpool_denoise_3d(volume_u8, kernel=3):
                             if not (0 <= nz < depth and 0 <= ny < height and 0 <= nx < width):
                                 continue
 
-                            values.append(volume_u8[nz, ny, nx])
+                            value_sum += volume_u8[nz, ny, nx]
+                            count += 1
 
-                if values:
-                    result[z, y, x] = int(np.mean(values))
+                if count > 0:
+                    result[z, y, x] = value_sum // count
 
     return result
 
@@ -318,3 +330,92 @@ def avgpool_denoise_3d_fast(volume_u8, kernel=3):
                 result[z, y, x] = int(np.mean(neighborhood))
 
     return result
+
+
+@jit(nopython=True)
+def compute_local_stats(volume: npt.NDArray[np.uint8], kernel_size: int) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+    """Compute local standard deviation and mean with given kernel size."""
+    pad = kernel_size // 2
+    shape = volume.shape
+    std = np.zeros_like(volume, dtype=np.float32)
+    mean = np.zeros_like(volume, dtype=np.float32)
+
+    for x in range(pad, shape[0] - pad):
+        for y in range(pad, shape[1] - pad):
+            for z in range(pad, shape[2] - pad):
+                neighborhood = volume[x-pad:x+pad+1, y-pad:y+pad+1, z-pad:z+pad+1]
+                std[x,y,z] = np.std(neighborhood)
+                mean[x,y,z] = np.mean(neighborhood)
+
+    return std, mean
+
+
+@jit(nopython=True)
+def compute_local_stats(volume: npt.NDArray[np.uint8], kernel_size: int) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+    pad = kernel_size // 2
+    shape = volume.shape
+    std = np.zeros_like(volume, dtype=np.float32)
+    mean = np.zeros_like(volume, dtype=np.float32)
+
+    for x in range(pad, shape[0] - pad):
+        for y in range(pad, shape[1] - pad):
+            for z in range(pad, shape[2] - pad):
+                neighborhood = volume[x-pad:x+pad+1, y-pad:y+pad+1, z-pad:z+pad+1]
+                std[x,y,z] = np.std(neighborhood)
+                mean[x,y,z] = np.mean(neighborhood)
+
+    return std, mean
+
+def determine_thresholds(volume: npt.NDArray[np.uint8], kernel_size: int) -> Tuple[float, float]:
+    """
+    Automatically determine std and mean thresholds using data statistics.
+    Returns (std_threshold, mean_threshold)
+    """
+    # Compute stats for smallest kernel to get initial segmentation
+    std, mean = compute_local_stats(volume, kernel_size)
+
+    # Remove edge effects
+    valid_mask = (std > 0) & (mean > 0)
+    std_valid = std[valid_mask]
+    mean_valid = mean[valid_mask]
+
+    # Compute percentiles for both distributions
+    percentiles = np.linspace(0, 100, 100)
+    std_percentiles = np.percentile(std_valid, percentiles)
+    mean_percentiles = np.percentile(mean_valid, percentiles)
+
+    # Find crossover point where std starts increasing faster than mean
+    derivatives = np.diff(std_percentiles) - np.diff(mean_percentiles)
+    crossover_idx = np.argmax(derivatives > 0)
+
+    std_threshold = std_percentiles[crossover_idx]
+    mean_threshold = mean_percentiles[crossover_idx]
+
+    return std_threshold, mean_threshold
+
+@jit(nopython=True)
+def identify_noise(volume: npt.NDArray[np.uint8],
+                   kernel_sizes: list[int],
+                   std_threshold: float,
+                   mean_threshold: float) -> npt.NDArray[np.bool_]:
+    noise_mask = np.zeros_like(volume, dtype=np.bool_)
+
+    for kernel_size in kernel_sizes:
+        std, mean = compute_local_stats(volume, kernel_size)
+        noise_mask |= (std > std_threshold) & (mean < mean_threshold)
+
+    return noise_mask
+
+def clean_volume(volume: npt.NDArray[np.uint8],
+                 kernel_sizes: list[int] = [3, 5]) -> npt.NDArray[np.uint8]:
+    """
+    Clean noise from volume using automatically determined thresholds.
+    Returns cleaned volume.
+    """
+    # Use smallest kernel for threshold determination
+    std_threshold, mean_threshold = determine_thresholds(volume, kernel_sizes[0])
+
+    noise_mask = identify_noise(volume, kernel_sizes, std_threshold, mean_threshold)
+    cleaned = volume.copy()
+    cleaned[noise_mask] = 0
+    return cleaned

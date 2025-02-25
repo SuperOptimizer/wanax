@@ -19,13 +19,41 @@ def z_score_normalize(data):
 
 @njit(parallel=True)
 def robust_normalize(data):
-    q25 = np.percentile(data, 25)
-    q75 = np.percentile(data, 75)
-    iqr = q75 - q25
-    if iqr == 0:
+    # Extract non-zero values
+    non_zero_values = np.empty(data.size, dtype=np.float32)
+    non_zero_count = 0
+
+    for i in prange(data.size):
+        if data.flat[i] != 0:
+            non_zero_values[non_zero_count] = data.flat[i]
+            non_zero_count += 1
+
+    # If no non-zero values, return all zeros
+    if non_zero_count == 0:
         return np.zeros_like(data, dtype=np.float32)
-    median = np.median(data)
-    return ((data - median) / iqr).astype(np.float32)
+
+    # Calculate statistics on non-zero values only
+    q25 = np.percentile(non_zero_values[:non_zero_count], 25)
+    q75 = np.percentile(non_zero_values[:non_zero_count], 75)
+    iqr = q75 - q25
+
+    if iqr == 0:
+        # If IQR is zero, set non-zero values to 1.0
+        result = np.zeros_like(data, dtype=np.float32)
+        for i in prange(data.size):
+            if data.flat[i] != 0:
+                result.flat[i] = 1.0
+        return result
+
+    median = np.median(non_zero_values[:non_zero_count])
+
+    # Normalize only non-zero values
+    result = np.zeros_like(data, dtype=np.float32)
+    for i in prange(data.size):
+        if data.flat[i] != 0:
+            result.flat[i] = (data.flat[i] - median) / iqr
+
+    return result
 
 @njit(parallel=True)
 def softmax_normalize(data):
