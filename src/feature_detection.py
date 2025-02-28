@@ -11,7 +11,7 @@ def pad_array(data, pad_width):
     else:  # 3D
         return np.pad(data, ((pad_width, pad_width), (pad_width, pad_width), (pad_width, pad_width)), mode='reflect')
 
-@njit(parallel=True)
+@njit(parallel=False)
 def sobel_filter(data):
     if data.ndim == 1:
         kernel = np.array([-1, 0, 1])
@@ -65,7 +65,7 @@ def sobel_filter(data):
 
         return np.sqrt(gx**2 + gy**2 + gz**2)
 
-@njit(parallel=True)
+@njit(parallel=False)
 def prewitt_filter(data):
     if data.ndim == 1:
         kernel = np.array([-1, 0, 1])
@@ -119,7 +119,7 @@ def prewitt_filter(data):
 
         return np.sqrt(gx**2 + gy**2 + gz**2)
 
-@njit(parallel=True)
+@njit(parallel=False)
 def scharr_filter(data):
     if data.ndim == 1:
         kernel = np.array([-1, 0, 1])
@@ -185,7 +185,7 @@ def canny_edge_detection(data, low_threshold=10, high_threshold=30, sigma=1.0):
 
     return final_edges
 
-@njit(parallel=True)
+@njit(parallel=False)
 def hessian_filter(data):
     result = np.zeros_like(data, dtype=np.float32)
 
@@ -207,7 +207,7 @@ def hessian_filter(data):
 
     return result
 
-@njit(parallel=True)
+@njit(parallel=False)
 def local_binary_pattern(data, radius=1, points=8):
     padded = pad_array(data, radius)
     result = np.zeros_like(data, dtype=np.uint8)

@@ -31,7 +31,7 @@ def pad_3d(data, pad_width):
 
     return padded
 
-@njit(parallel=True)
+@njit(parallel=False)
 def erosion(data, radius=1):
     padded = pad_3d(data, radius)
     result = np.zeros_like(data)
@@ -45,7 +45,7 @@ def erosion(data, radius=1):
                 result[z, y, x] = np.min(window)
     return result
 
-@njit(parallel=True)
+@njit(parallel=False)
 def dilation(data, radius=1):
     padded = pad_3d(data, radius)
     result = np.zeros_like(data)
@@ -93,7 +93,7 @@ def top_hat(data, radius=1):
 def black_hat(data, radius=1):
     return closing(data, radius) - data
 
-@njit(parallel=True)
+@njit(parallel=False)
 def distance_transform(binary_data):
     result = np.zeros_like(binary_data, dtype=np.float32)
     max_dist = np.sum(binary_data.shape)

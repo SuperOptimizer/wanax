@@ -29,7 +29,7 @@ class VolumeViewer:
         )
 
     def _add_control_dock(self):
-        self.control_dock = VolumeControls(self.layer)
+        self.control_dock = VolumeControls("asdf",self.layer)
         self.viewer.window.add_dock_widget(
             self.control_dock,
             name="Volume Controls",

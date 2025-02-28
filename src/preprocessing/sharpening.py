@@ -10,7 +10,7 @@ def pad_array(data, pad_width):
     else:  # 3D
         return np.pad(data, ((pad_width, pad_width), (pad_width, pad_width), (pad_width, pad_width)), mode='edge')
 
-@njit(parallel=True)
+@njit(parallel=False)
 def unsharp_mask(data, radius=1, amount=1.0, threshold=0):
     result = np.zeros_like(data, dtype=np.float32)
     blurred = np.zeros_like(data, dtype=np.float32)
@@ -35,7 +35,7 @@ def unsharp_mask(data, radius=1, amount=1.0, threshold=0):
     result = data + amount * highpass * mask
     return np.clip(result, 0, 255).astype(np.uint8)
 
-@njit(parallel=True)
+@njit(parallel=False)
 def laplacian_sharpen(data, strength=1.0):
     result = np.zeros_like(data, dtype=np.float32)
 

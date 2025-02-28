@@ -306,3 +306,4 @@ data/
 
 build/*
 !build/.gitkeep
+.aider*

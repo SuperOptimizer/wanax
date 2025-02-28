@@ -62,7 +62,7 @@ def trilinear_interpolation(volume, x, y, z):
 
     return c
 
-@jit(nopython=True, parallel=True)
+@jit(nopython=True, parallel=False)
 def scale_volume(volume, scale_factor):
     """
     Scale the contents of a 3D volume using trilinear interpolation,
@@ -110,7 +110,7 @@ def scale_volume(volume, scale_factor):
 
     return result
 
-@jit(nopython=True, parallel=True)
+@jit(nopython=True, parallel=False)
 def scale_volume_optimized(volume, scale_factor):
     """
     Optimized version of scale_volume_trilinear that uses pre-computed

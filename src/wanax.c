@@ -593,7 +593,12 @@ int main() {
     // Display results
     printf("Factorial of 5 = %u\n", emu->regs.regs[2]);  // Result in $v0
     dump_registers(emu);
-    
+
+
+
+
+    //explain mips_cleanup AI!
+
     mips_cleanup(emu);
     return 0;
 }
