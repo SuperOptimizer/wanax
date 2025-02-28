@@ -17,7 +17,7 @@ def z_score_normalize(data):
         return np.zeros_like(data, dtype=np.float32)
     return ((data - mean) / std).astype(np.float32)
 
-@njit(parallel=True,fastmath=True)
+@njit(parallel=False,fastmath=True)
 def robust_normalize(data):
     # Extract non-zero values
     non_zero_values = np.empty(data.size, dtype=np.float32)

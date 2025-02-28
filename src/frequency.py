@@ -299,7 +299,7 @@ def wavelet_denoise_3d_u8(data, threshold=0.1):
     # Convert back to uint8
     return float32_to_uint8(denoised)
 
-@njit(parallel=True, fastmath=True)
+@njit(parallel=False, fastmath=True)
 def process_volume_blocks(data, block_size=(256,256,256), threshold=0.1):
     """
     Process large volumes in blocks to improve cache efficiency and memory usage.

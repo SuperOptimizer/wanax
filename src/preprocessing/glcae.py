@@ -34,7 +34,7 @@ def linear_stretching_3d(data):
 
     return result
 
-@njit(parallel=True, fastmath=True)
+@njit(parallel=False, fastmath=True)
 def compute_histogram_3d(data):
     """Compute histogram for 3D uint8 data, ignoring zeros."""
     hist = np.zeros(256, dtype=np.float32)
@@ -252,7 +252,7 @@ def create_mapping_from_hist(hist):
 
     return mapping
 
-@njit(parallel=True, fastmath=True)
+@njit(parallel=False, fastmath=True)
 def local_contrast_enhancement(data, clip_limit=2.0):
     """Simplified tile-based CLAHE implementation."""
     depth, height, width = data.shape

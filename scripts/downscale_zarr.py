@@ -38,7 +38,7 @@ def create_downsampled_arrays(root_path, scroll_name="scroll1a", energy="54kev",
 
         current_shape = new_shape
 
-@nb.njit(parallel=True, fastmath=True)
+@nb.njit(parallel=False, fastmath=True)
 def downsample_chunk_3d(chunk):
     depth, height, width = chunk.shape
     new_depth = depth // 2

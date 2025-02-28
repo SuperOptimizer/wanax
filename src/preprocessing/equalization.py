@@ -1,7 +1,7 @@
 import numpy as np
 from numba import njit, prange
 
-@njit(fastmath=True, parallel=True)
+@njit(fastmath=True, parallel=False)
 def compute_histogram_u8(data):
     """Compute histogram for uint8 data efficiently with parallelization."""
     hist = np.zeros(256, dtype=np.uint32)
@@ -12,7 +12,7 @@ def compute_histogram_u8(data):
 
     return hist
 
-@njit(fastmath=True, parallel=True)
+@njit(fastmath=True, parallel=False)
 def create_equalization_lut(histogram, preserve_zeros=True, output_min=0, output_max=255):
     """Create a lookup table for histogram equalization."""
     # Calculate total pixels (excluding zeros if preserve_zeros is True)
@@ -93,7 +93,7 @@ def histogram_equalization_3d_u8(data, preserve_zeros=True, output_min=0, output
     # Apply lookup table to 3D data
     return apply_lut_3d(data, lut)
 
-@njit(parallel=True, fastmath=True)
+@njit(parallel=False, fastmath=True)
 def process_volume_blocks_with_global_lut(data, lut, block_size):
     """Apply a global LUT to blocks of a 3D volume for better cache efficiency."""
     depth, height, width = data.shape
