@@ -7,11 +7,24 @@ from qtpy.QtWidgets import (
 from qtpy.QtCore import Qt
 
 
-
 class VolumeViewer:
     def __init__(self, volume: np.ndarray):
-        if not isinstance(volume, np.ndarray) or volume.dtype != np.uint8:
-            raise ValueError("Volume must be a uint8 numpy array")
+        if not isinstance(volume, np.ndarray):
+            raise ValueError("Volume must be a numpy array")
+
+        # Convert to uint8 if needed
+        if volume.dtype != np.uint8:
+            print(f"Converting volume from {volume.dtype} to uint8")
+            # Scale to 0-255 range if not already in that range
+            if volume.min() < 0 or volume.max() > 255:
+                volume = ((volume - volume.min()) / (volume.max() - volume.min()) * 255).astype(np.uint8)
+            else:
+                volume = volume.astype(np.uint8)
+
+        # Check for all-zero data which could cause division issues
+        if np.all(volume == 0):
+            print("Warning: Volume contains all zeros. Adding a small value to prevent division issues.")
+            volume[0, 0, 0] = 1  # Add a single non-zero value
 
         self.volume = volume
         self.viewer = napari.Viewer(ndisplay=3)
@@ -19,17 +32,28 @@ class VolumeViewer:
         self._add_control_dock()
 
     def _add_volume(self):
-        self.layer = self.viewer.add_image(
-            self.volume,
-            name='Volume',
-            rendering='attenuated_mip',
-            attenuation=0.1,
-            contrast_limits=[0, 255],
-            gamma=1.0,
-        )
+        try:
+            self.layer = self.viewer.add_image(
+                self.volume,
+                name='Volume',
+                rendering='attenuated_mip',
+                attenuation=0.1,
+                contrast_limits=[0, 255],
+                gamma=1.0,
+            )
+        except Exception as e:
+            print(f"Error adding volume: {e}")
+            # Try with different rendering mode as fallback
+            self.layer = self.viewer.add_image(
+                self.volume,
+                name='Volume',
+                rendering='mip',  # Try maximum intensity projection instead
+                contrast_limits=[0, 255],
+                gamma=1.0,
+            )
 
     def _add_control_dock(self):
-        self.control_dock = VolumeControls("asdf",self.layer)
+        self.control_dock = VolumeControls("Volume Controls", self.layer)
         self.viewer.window.add_dock_widget(
             self.control_dock,
             name="Volume Controls",
@@ -38,7 +62,6 @@ class VolumeViewer:
 
     def run(self):
         napari.run()
-
 
 
 class VolumeControls(QWidget):
@@ -52,26 +75,27 @@ class VolumeControls(QWidget):
         header = QLabel(f"<h3>{name}</h3>")
         layout.addWidget(header)
 
-        # Attenuation control
-        att_layout = QHBoxLayout()
-        att_layout.addWidget(QLabel("Attenuation:"))
+        # Attenuation control (only if the layer has attenuation property)
+        if hasattr(layer, 'attenuation'):
+            att_layout = QHBoxLayout()
+            att_layout.addWidget(QLabel("Attenuation:"))
 
-        self.att_slider = QSlider(Qt.Horizontal)
-        self.att_slider.setMinimum(1)
-        self.att_slider.setMaximum(100000)
-        self.att_slider.setValue(int(layer.attenuation * 10000))
-        self.att_slider.valueChanged.connect(self.update_attenuation)
-        att_layout.addWidget(self.att_slider)
+            self.att_slider = QSlider(Qt.Horizontal)
+            self.att_slider.setMinimum(1)
+            self.att_slider.setMaximum(100000)
+            self.att_slider.setValue(int(layer.attenuation * 10000))
+            self.att_slider.valueChanged.connect(self.update_attenuation)
+            att_layout.addWidget(self.att_slider)
 
-        self.att_value = QDoubleSpinBox()
-        self.att_value.setRange(0.0001, 10.0)
-        self.att_value.setDecimals(4)
-        self.att_value.setValue(layer.attenuation)
-        self.att_value.setSingleStep(0.01)
-        self.att_value.valueChanged.connect(self.update_attenuation_from_spinbox)
-        att_layout.addWidget(self.att_value)
+            self.att_value = QDoubleSpinBox()
+            self.att_value.setRange(0.0001, 10.0)
+            self.att_value.setDecimals(4)
+            self.att_value.setValue(layer.attenuation)
+            self.att_value.setSingleStep(0.01)
+            self.att_value.valueChanged.connect(self.update_attenuation_from_spinbox)
+            att_layout.addWidget(self.att_value)
 
-        layout.addLayout(att_layout)
+            layout.addLayout(att_layout)
 
         # Gamma control
         gamma_layout = QHBoxLayout()
@@ -159,7 +183,8 @@ class MultiVolumeControlsDock(QWidget):
 
     def reset_all(self):
         for control in self.volume_controls:
-            control.att_value.setValue(0.1)
+            if hasattr(control.layer, 'attenuation'):
+                control.att_value.setValue(0.1)
             control.gamma_value.setValue(1.0)
             control.vis_checkbox.setChecked(True)
 
@@ -174,11 +199,27 @@ class MultiVolumeViewer:
         elif len(names) != len(volumes):
             raise ValueError("Number of names must match number of volumes")
 
+        self.volumes = []
         for vol in volumes:
-            if not isinstance(vol, np.ndarray) or vol.dtype != np.uint8:
-                raise ValueError("All volumes must be uint8 numpy arrays")
+            if not isinstance(vol, np.ndarray):
+                raise ValueError("All volumes must be numpy arrays")
 
-        self.volumes = volumes
+            # Convert to uint8 if needed
+            if vol.dtype != np.uint8:
+                print(f"Converting volume from {vol.dtype} to uint8")
+                # Scale to 0-255 range if not already in that range
+                if vol.min() < 0 or vol.max() > 255:
+                    vol = ((vol - vol.min()) / (vol.max() - vol.min()) * 255).astype(np.uint8)
+                else:
+                    vol = vol.astype(np.uint8)
+
+            # Check for all-zero data which could cause division issues
+            if np.all(vol == 0):
+                print("Warning: Volume contains all zeros. Adding a small value to prevent division issues.")
+                vol[0, 0, 0] = 1  # Add a single non-zero value
+
+            self.volumes.append(vol)
+
         self.names = names
         self.viewer = napari.Viewer(ndisplay=3)
         self._add_volumes()
@@ -187,15 +228,28 @@ class MultiVolumeViewer:
     def _add_volumes(self):
         self.layers = []
         for volume, name in zip(self.volumes, self.names):
-            layer = self.viewer.add_image(
-                volume,
-                name=name,
-                rendering='attenuated_mip',
-                attenuation=0.1,
-                contrast_limits=[0, 255],
-                gamma=1.0,
-                blending='additive'
-            )
+            try:
+                layer = self.viewer.add_image(
+                    volume,
+                    name=name,
+                    rendering='attenuated_mip',
+                    attenuation=0.1,
+                    contrast_limits=[0, 255],
+                    gamma=1.0,
+                    blending='additive'
+                )
+            except Exception as e:
+                print(f"Error adding volume {name}: {e}")
+                # Try with different rendering mode as fallback
+                layer = self.viewer.add_image(
+                    volume,
+                    name=name,
+                    rendering='mip',  # Try maximum intensity projection instead
+                    contrast_limits=[0, 255],
+                    gamma=1.0,
+                    blending='additive'
+                )
+
             self.layers.append(layer)
 
     def _add_control_dock(self):
@@ -208,4 +262,3 @@ class MultiVolumeViewer:
 
     def run(self):
         napari.run()
-

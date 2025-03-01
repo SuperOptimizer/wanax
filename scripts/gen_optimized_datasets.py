@@ -1,7 +1,6 @@
 import zarr
 import time
 import os
-from tqdm import tqdm
 import datetime
 import concurrent.futures
 
@@ -60,7 +59,7 @@ def binary_dilation_3d_numba(input_array, radius, output_array=None):
     return output_array
 
 
-def process_shard_worker(z_start, y_start, x_start, shard_size, raw_path, masked_path, root_path, shape):
+def process_shard_worker(z_start, y_start, x_start, shard_size, raw_path, masked_path, root_path):
     """Process a shard and write directly to the output array"""
     shard_start_time = time.time()
 
@@ -168,11 +167,11 @@ def process_shard_worker(z_start, y_start, x_start, shard_size, raw_path, masked
     return processing_time, (z_start, y_start, x_start)
 
 
-def process_scroll1a(max_shard_workers=None):
+def process_scroll1a(max_shard_workers=None, shard_timeout=60):  # 60 second timeout
     start_time = time.time()
     store_path = "/Volumes/vesuvius/optimized2"
     store = zarr.storage.LocalStore(store_path)
-    root = zarr.create_group(store=store, zarr_format=3, overwrite=True)
+    root = zarr.create_group(store=store, zarr_format=3, overwrite=False)
     compressor = zarr.codecs.BloscCodec(cname='zstd', clevel=3)
 
     chunk_size = (256, 256, 256)  # Keep for output array chunking
@@ -198,9 +197,10 @@ def process_scroll1a(max_shard_workers=None):
     print(f"Output shape: {shape}")
     print(f"Masked shape: {masked_shape}")
     print(f"Raw shape: {raw_shape}")
+    print(f"Shard timeout set to: {shard_timeout} seconds")
 
     # Create output array
-    output_array = root.create_array(
+    root.create_array(
         f"{scroll_name}/{energy}/8um",
         compressors=[compressor],
         chunks=chunk_size,
@@ -220,18 +220,21 @@ def process_scroll1a(max_shard_workers=None):
     print(f"Total shards to process: {total_shards}")
 
     processed_shards = 0
+    successful_shards = 0
     total_processing_time = 0
-
-    # Create a progress bar
-    pbar = tqdm(total=total_shards, desc="Processing shards")
+    timed_out_shards = []
 
     # Use ProcessPoolExecutor for parallel processing
     if max_shard_workers is None:
         max_shard_workers = os.cpu_count()
 
+    print(f"Using {max_shard_workers} workers for processing")
+    print(f"Starting processing at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("-" * 80)
+
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_shard_workers) as executor:
-        # Submit all tasks at once
-        futures = []
+        # Submit all tasks at once and track them with a dictionary
+        future_to_coord = {}
         for z_start, y_start, x_start in shard_coords:
             future = executor.submit(
                 process_shard_worker,
@@ -239,43 +242,96 @@ def process_scroll1a(max_shard_workers=None):
                 chunk_size,
                 raw_path,
                 masked_path,
-                store_path,
-                shape
+                store_path
             )
-            futures.append(future)
+            future_to_coord[future] = (z_start, y_start, x_start)
 
-        # Process results as they complete
-        for future in concurrent.futures.as_completed(futures):
-            processing_time, coords = future.result()
-            z_start, y_start, x_start = coords
-
+        # Process results as they complete with timeout
+        for future in concurrent.futures.as_completed(future_to_coord.keys()):
+            z_start, y_start, x_start = future_to_coord[future]
             processed_shards += 1
-            total_processing_time += processing_time
 
-            # Calculate progress metrics
-            elapsed_time = time.time() - start_time
-            shards_per_second = processed_shards / elapsed_time if elapsed_time > 0 else 0
-            remaining_shards = total_shards - processed_shards
-            eta_seconds = remaining_shards / shards_per_second if shards_per_second > 0 else 0
-            eta = str(datetime.timedelta(seconds=int(eta_seconds)))
+            try:
+                # Apply timeout to the future
+                processing_time, coords = future.result(timeout=shard_timeout)
 
-            # Update progress bar
-            pbar.set_postfix({
-                'shard': f"({z_start},{y_start},{x_start})",
-                'time': f"{processing_time:.2f}s",
-                'speed': f"{shards_per_second:.3f}/s",
-                'ETA': eta
-            })
-            pbar.update(1)
+                successful_shards += 1
+                total_processing_time += processing_time
 
-    pbar.close()
+                # Calculate progress metrics
+                elapsed_time = time.time() - start_time
+                shards_per_second = successful_shards / elapsed_time if elapsed_time > 0 else 0
+                remaining_shards = total_shards - processed_shards
+                eta_seconds = remaining_shards / shards_per_second if shards_per_second > 0 else 0
+                eta = str(datetime.timedelta(seconds=int(eta_seconds)))
+
+                # Print progress
+                print(f"Processed shard ({z_start},{y_start},{x_start}) in {processing_time:.2f}s - Progress: {processed_shards}/{total_shards} - ETA: {eta}")
+
+            except concurrent.futures.TimeoutError:
+                # Handle timeout case
+                timed_out_shards.append((z_start, y_start, x_start))
+                print(f"TIMEOUT: Shard ({z_start},{y_start},{x_start}) exceeded {shard_timeout} seconds")
+
+                # Create empty data for timed out shard
+                # This ensures we don't have missing data in the output array
+                z_end = min(z_start + chunk_size[0], raw_shape[0])
+                y_end = min(y_start + chunk_size[1], raw_shape[1])
+                x_end = min(x_start + chunk_size[2], raw_shape[2])
+
+                actual_z_size = z_end - z_start
+                actual_y_size = y_end - y_start
+                actual_x_size = x_end - x_start
+
+                # Create a temporary zero array to fill the space
+                empty_data = np.zeros((actual_z_size, actual_y_size, actual_x_size), dtype=np.uint8)
+
+                # Open the root storage directly
+                root = zarr.open(store_path)
+                output_array = root['scroll1a/54kev/8um']
+
+                # Write the empty data to the output array
+                output_array[z_start:z_end, y_start:y_end, x_start:x_end] = empty_data
+
+            except Exception as e:
+                # Handle other exceptions
+                print(f"ERROR: Processing shard ({z_start},{y_start},{x_start}) failed: {str(e)}")
+                timed_out_shards.append((z_start, y_start, x_start))
 
     end_time = time.time()
-    print(f"Total processing time: {end_time - start_time:.2f} seconds")
+    total_time = end_time - start_time
+
+    print("-" * 80)
+    print(f"Processing completed at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Total processing time: {total_time:.2f} seconds")
+    print(f"Successfully processed: {successful_shards}/{total_shards} shards")
+
+    if timed_out_shards:
+        print(f"Timed out shards: {len(timed_out_shards)}")
+        print("First 10 timed out shard coordinates:")
+        for i, coords in enumerate(timed_out_shards[:10]):
+            print(f"  {coords}")
+
+        if len(timed_out_shards) > 10:
+            print(f"  ... and {len(timed_out_shards) - 10} more")
+
+        # Save timed out shard information
+        timeout_log_file = f"timed_out_shards_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        with open(timeout_log_file, 'w') as f:
+            f.write(f"# Timed out shards from run at {datetime.datetime.now()}\n")
+            f.write(f"# Total run time: {total_time:.2f} seconds\n")
+            f.write(f"# Timeout threshold: {shard_timeout} seconds\n")
+            for coords in timed_out_shards:
+                f.write(f"{coords[0]},{coords[1]},{coords[2]}\n")
+
+        print(f"Timed out shard coordinates saved to {timeout_log_file}")
+
 
 if __name__ == '__main__':
-    # Configure parallelism:
+    # Configure parallelism and timeout:
     # - max_shard_workers: number of concurrent shard processes (None = auto)
+    # - shard_timeout: maximum time in seconds for a shard to process before being killed
     process_scroll1a(
         max_shard_workers=None,  # Limit workers to reduce memory pressure
+        shard_timeout=60,     # 60 seconds timeout per shard
     )

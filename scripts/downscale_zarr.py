@@ -96,17 +96,9 @@ def process_shard(args):
     target_y_end = target_y_start + downsampled.shape[1]
     target_x_end = target_x_start + downsampled.shape[2]
 
-    mask = {'4um':0xe0,
-            '8um':0xf0,
-            '16um':0xf8,
-            '32um':0xfc,
-            '64um':0xfe,
-            '128um':0xff,
-            }[target_resolution]
-
     target_array[target_z_start:target_z_end,
     target_y_start:target_y_end,
-    target_x_start:target_x_end] = downsampled&mask
+    target_x_start:target_x_end] = downsampled
 
     return f"Processed chunk at {z_start},{y_start},{x_start}"
 
