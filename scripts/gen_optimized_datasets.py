@@ -1,3 +1,4 @@
+import skimage.exposure
 import zarr
 import time
 import os
@@ -383,16 +384,16 @@ def process_shard_worker(z_start, y_start, x_start, shard_size, raw_path, masked
             processed_data = np.zeros((actual_z_size, actual_y_size, actual_x_size), dtype=np.uint8)
             output_array[z_start:z_end, y_start:y_end, x_start:x_end] = processed_data
             return time.time() - shard_start_time, (z_start, y_start, x_start)
-        intensity_mask = binary_dilation_3d_numba(intensity_mask, 8)
+        intensity_mask = binary_dilation_3d_numba(intensity_mask, 5)
         processed_data[~intensity_mask] = 0
 
     processed_data = src.preprocessing.equalization.histogram_equalize_3d_u8(processed_data)
     processed_data = median_filter_3d(processed_data,radius=1)
+    processed_data = src.preprocessing.sharpening.unsharp_mask(processed_data,radius=4,amount=2)
     processed_data = src.preprocessing.glcae.enhance_contrast_3d(processed_data)
-    processed_data = src.preprocessing.sharpening.unsharp_mask(processed_data,radius=1,amount=4)
     processed_data = src.preprocessing.normalization.min_max_normalize(processed_data,127,255).astype(np.uint8)
     processed_data[processed_data < 128] = 0
-    processed_data &= 0xfc
+    processed_data &= 0xfe
 
     src.viewer.VolumeViewer(processed_data).run()
     output_array[z_start:z_end, y_start:y_end, x_start:x_end] = processed_data
@@ -406,9 +407,9 @@ def process_scroll(root, name, raw_path, masked5_path, energy, resolution, indim
     root.create_array(array_name, compressors=[COMPRESSOR], chunks=CHUNKS, dtype=DTYPE, shape=outdims, dimension_names=DIMNAMES, shards=SHARDS)
 
     chunks = []
-    for z_start in range(1024, indims[0], CHUNKS[0]):
-        for y_start in range(512, indims[1], CHUNKS[1]):
-            for x_start in range(1024, indims[2], CHUNKS[2]):
+    for z_start in range(0, indims[0], CHUNKS[0]):
+        for y_start in range(0, indims[1], CHUNKS[1]):
+            for x_start in range(0, indims[2], CHUNKS[2]):
                 chunks.append((z_start, y_start, x_start))
 
     total_shards = len(chunks)
@@ -483,14 +484,14 @@ if __name__ == '__main__':
         # (9778, 3550, 3400), (alignup(9778, 1024), alignup(3550, 1024), alignup(3400, 1024)), 64),
         #("scroll4", "/Volumes/vesuvius/scroll4_0", None, "54kev", "7.91um",
         # (11174, 3340, 3400), (alignup(11174, 1024), alignup(3340, 1024), alignup(3400, 1024)), 128),
-        #("scroll5", "/Volumes/vesuvius/scroll5_0", None, "54kev", "7.91um",
-        # (21000, 6700, 9100), (alignup(21000, 1024), alignup(6700, 1024), alignup(9100, 1024)), 128),
+        ("scroll5", "/Volumes/vesuvius/scroll5_0", None, "54kev", "7.91um",
+         (21000, 6700, 9100), (alignup(21000, 1024), alignup(6700, 1024), alignup(9100, 1024)), 128),
         #("fragment1", "/Volumes/vesuvius/frag1_0", None, "54kev", "7.91um",
         # (7219, 1399, 7198), (alignup(7219, 1024), alignup(1399, 1024), alignup(7198, 1024)), 128),
         #("fragment2", "/Volumes/vesuvius/frag2_0", None, "54kev", "7.91um",
         # (14111, 2288, 9984), (alignup(14111, 1024), alignup(2288, 1024), alignup(9984, 1024)), 32),
-        ("fragment3", "/Volumes/vesuvius/frag3_0", None, "54kev", "7.91um",
-         (6656, 2288, 6312), (alignup(6656, 1024), alignup(1440, 1024), alignup(6312, 1024)), 32),
+        #("fragment3", "/Volumes/vesuvius/frag3_0", None, "54kev", "7.91um",
+        # (6656, 2288, 6312), (alignup(6656, 1024), alignup(1440, 1024), alignup(6312, 1024)), 1),
     ]
     for name, rawpath, maskedpath, energy,resolution, indims,outdims, iso in configs:
 
