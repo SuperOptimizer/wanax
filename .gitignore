@@ -307,3 +307,4 @@ data/
 build/*
 !build/.gitkeep
 .aider*
+thirdparty/

@@ -388,14 +388,14 @@ def process_shard_worker(z_start, y_start, x_start, shard_size, raw_path, masked
         processed_data[~intensity_mask] = 0
 
     processed_data = src.preprocessing.equalization.histogram_equalize_3d_u8(processed_data)
-    processed_data = median_filter_3d(processed_data,radius=1)
-    processed_data = src.preprocessing.sharpening.unsharp_mask(processed_data,radius=4,amount=2)
+    processed_data = median_filter_3d(processed_data)
     processed_data = src.preprocessing.glcae.enhance_contrast_3d(processed_data)
+    processed_data = src.preprocessing.sharpening.laplacian_sharpen(processed_data)
     processed_data = src.preprocessing.normalization.min_max_normalize(processed_data,127,255).astype(np.uint8)
     processed_data[processed_data < 128] = 0
-    processed_data &= 0xfe
+    processed_data &= 0xf8
 
-    src.viewer.VolumeViewer(processed_data).run()
+    #src.viewer.VolumeViewer(processed_data).run()
     output_array[z_start:z_end, y_start:y_end, x_start:x_end] = processed_data
     processing_time = time.time() - shard_start_time
     return processing_time, (z_start, y_start, x_start)
@@ -474,16 +474,16 @@ if __name__ == '__main__':
     root = zarr.create_group(store=store, zarr_format=3, overwrite=True)
 
     configs = [
-        #("scroll1a", "/Volumes/vesuvius/scroll1a_0", "/Volumes/vesuvius/scroll1a_5_masked/5", "54kev", "7.91um",
-        # (10532, 7812, 8316), (alignup(10532, 1024), alignup(7812, 1024), alignup(8316, 1024)), 96),
-        #("scroll1b", "/Volumes/vesuvius/scroll1b_0", None, "54kev", "7.91um",
-        # (10532, 7812, 8316), (alignup(10532, 1024), alignup(7812, 1024), alignup(8316, 1024)), 96),
-        #("scroll2a", "/Volumes/vesuvius/scroll2_0", "/Volumes/vesuvius/scroll2_5_masked", "54kev", "7.91um",
-        # (14428, 10112, 11984), (alignup(14428, 1024), alignup(10112, 1024), alignup(11984, 1024)), 0),
-        #("scroll3", "/Volumes/vesuvius/scroll3_0", None, "54kev", "7.91um",
-        # (9778, 3550, 3400), (alignup(9778, 1024), alignup(3550, 1024), alignup(3400, 1024)), 64),
-        #("scroll4", "/Volumes/vesuvius/scroll4_0", None, "54kev", "7.91um",
-        # (11174, 3340, 3400), (alignup(11174, 1024), alignup(3340, 1024), alignup(3400, 1024)), 128),
+        ("scroll1a", "/Volumes/vesuvius/scroll1a_0", "/Volumes/vesuvius/scroll1a_5_masked/5", "54kev", "7.91um",
+         (10532, 7812, 8316), (alignup(10532, 1024), alignup(7812, 1024), alignup(8316, 1024)), 128),
+        ("scroll1b", "/Volumes/vesuvius/scroll1b_0", None, "54kev", "7.91um",
+         (10532, 7812, 8316), (alignup(10532, 1024), alignup(7812, 1024), alignup(8316, 1024)), 128),
+        ("scroll2", "/Volumes/vesuvius/scroll2_0", "/Volumes/vesuvius/scroll2_5_masked", "54kev", "7.91um",
+         (14428, 10112, 11984), (alignup(14428, 1024), alignup(10112, 1024), alignup(11984, 1024)), 0),
+        ("scroll3", "/Volumes/vesuvius/scroll3_0", None, "54kev", "7.91um",
+         (9778, 3550, 3400), (alignup(9778, 1024), alignup(3550, 1024), alignup(3400, 1024)), 64),
+        ("scroll4", "/Volumes/vesuvius/scroll4_0", None, "54kev", "7.91um",
+         (11174, 3340, 3400), (alignup(11174, 1024), alignup(3340, 1024), alignup(3400, 1024)), 128),
         ("scroll5", "/Volumes/vesuvius/scroll5_0", None, "54kev", "7.91um",
          (21000, 6700, 9100), (alignup(21000, 1024), alignup(6700, 1024), alignup(9100, 1024)), 128),
         #("fragment1", "/Volumes/vesuvius/frag1_0", None, "54kev", "7.91um",
