@@ -13,17 +13,156 @@ import numpy as np
 from numba import njit, prange
 import numpy.typing as npt
 from typing import Tuple, List
+
+import numpy as np
+from numba import njit, prange
+
+
+@njit
+def reflect_indices(idx, size):
+    """
+    Calculate the reflected index for boundary handling.
+    Implements reflection padding similar to np.pad with mode='reflect'.
+    """
+    if idx < 0:
+        # Reflect back from left boundary
+        return -idx - 1 if -idx <= size else (2 * size - idx - 1) % (2 * size)
+    elif idx >= size:
+        # Reflect back from right boundary
+        return 2 * size - idx - 1 if idx < 2 * size else idx % (2 * size)
+    else:
+        # Regular index
+        return idx
+
+
+@njit
+def pad_array_reflect_1d(arr, pad_width):
+    """Numba-compatible 1D array padding with reflect mode."""
+    result = np.zeros(arr.shape[0] + 2 * pad_width, dtype=arr.dtype)
+    size = arr.shape[0]
+
+    # Copy the original array to the center
+    result[pad_width:pad_width + size] = arr
+
+    # Pad the left side
+    for i in range(pad_width):
+        idx = reflect_indices(-i - 1, size)
+        result[pad_width - i - 1] = arr[idx]
+
+    # Pad the right side
+    for i in range(pad_width):
+        idx = reflect_indices(size + i, size)
+        result[pad_width + size + i] = arr[idx]
+
+    return result
+
+
+@njit
+def pad_array_reflect_2d(arr, pad_width):
+    """Numba-compatible 2D array padding with reflect mode."""
+    h, w = arr.shape
+    result = np.zeros((h + 2 * pad_width, w + 2 * pad_width), dtype=arr.dtype)
+
+    # Copy the original array to the center
+    result[pad_width:pad_width + h, pad_width:pad_width + w] = arr
+
+    # Pad the top and bottom
+    for i in range(pad_width):
+        # Top pad (reflect from top rows)
+        top_idx = reflect_indices(-i - 1, h)
+        result[pad_width - i - 1, pad_width:pad_width + w] = arr[top_idx, :]
+
+        # Bottom pad (reflect from bottom rows)
+        bottom_idx = reflect_indices(h + i, h)
+        result[pad_width + h + i, pad_width:pad_width + w] = arr[bottom_idx, :]
+
+    # Pad the left and right
+    for j in range(pad_width):
+        # Left pad (reflect from left columns)
+        left_idx = reflect_indices(-j - 1, w)
+        result[:, pad_width - j - 1] = result[:, pad_width + left_idx]
+
+        # Right pad (reflect from right columns)
+        right_idx = reflect_indices(w + j, w)
+        result[:, pad_width + w + j] = result[:, pad_width + right_idx]
+
+    return result
+
+
+@njit
+def pad_array_reflect_3d(arr, pad_width):
+    """Numba-compatible 3D array padding with reflect mode."""
+    d, h, w = arr.shape
+    result = np.zeros((d + 2 * pad_width, h + 2 * pad_width, w + 2 * pad_width), dtype=arr.dtype)
+
+    # Copy the original array to the center
+    result[pad_width:pad_width + d, pad_width:pad_width + h, pad_width:pad_width + w] = arr
+
+    # Pad along z axis (depth)
+    for i in range(pad_width):
+        # Front pad (reflect from front slices)
+        front_idx = reflect_indices(-i - 1, d)
+        result[pad_width - i - 1, pad_width:pad_width + h, pad_width:pad_width + w] = arr[front_idx, :, :]
+
+        # Back pad (reflect from back slices)
+        back_idx = reflect_indices(d + i, d)
+        result[pad_width + d + i, pad_width:pad_width + h, pad_width:pad_width + w] = arr[back_idx, :, :]
+
+    # Pad along y axis (height)
+    for j in range(pad_width):
+        # Top pad (reflect from top rows)
+        top_idx = reflect_indices(-j - 1, h)
+        result[:, pad_width - j - 1, pad_width:pad_width + w] = result[:, pad_width + top_idx, pad_width:pad_width + w]
+
+        # Bottom pad (reflect from bottom rows)
+        bottom_idx = reflect_indices(h + j, h)
+        result[:, pad_width + h + j, pad_width:pad_width + w] = result[:, pad_width + bottom_idx,
+                                                                pad_width:pad_width + w]
+
+    # Pad along x axis (width)
+    for k in range(pad_width):
+        # Left pad (reflect from left columns)
+        left_idx = reflect_indices(-k - 1, w)
+        result[:, :, pad_width - k - 1] = result[:, :, pad_width + left_idx]
+
+        # Right pad (reflect from right columns)
+        right_idx = reflect_indices(w + k, w)
+        result[:, :, pad_width + w + k] = result[:, :, pad_width + right_idx]
+
+    return result
+
+
 @njit
 def pad_array(data, pad_width):
+    """
+    Numba-compatible version of np.pad with reflect mode.
+    Handles 1D, 2D, and 3D arrays.
+    """
     if data.ndim == 1:
-        return np.pad(data, pad_width, mode='reflect')
+        return pad_array_reflect_1d(data, pad_width)
     elif data.ndim == 2:
-        return np.pad(data, ((pad_width, pad_width), (pad_width, pad_width)), mode='reflect')
+        return pad_array_reflect_2d(data, pad_width)
     else:  # 3D
-        return np.pad(data, ((pad_width, pad_width), (pad_width, pad_width), (pad_width, pad_width)), mode='reflect')
+        return pad_array_reflect_3d(data, pad_width)
 
-@njit(parallel=False)
+
+@njit(parallel=True, fastmath=True)
 def median_filter(data, radius=1):
+    """
+    Apply median filter to an array.
+
+    Parameters:
+    -----------
+    data : ndarray
+        Input array (1D, 2D, or 3D)
+    radius : int
+        Filter radius (default: 1)
+
+    Returns:
+    --------
+    ndarray
+        Filtered array
+    """
     padded = pad_array(data, radius)
     result = np.zeros_like(data)
     window_size = 2 * radius + 1
@@ -786,7 +925,7 @@ def find_median_u8(values, count):
     # If we didn't find the median (shouldn't happen unless array is empty)
     return np.uint8(0)
 
-@njit(parallel=False, fastmath=True)
+@njit(parallel=True, fastmath=True)
 def median_denoise_3d_3x3x3(volume_u8):
     """
     Highly optimized 3D median filtering for exactly 3x3x3 kernel.
@@ -877,3 +1016,111 @@ def median_denoise_3d_3x3x3(volume_u8):
                 result[z, y, x] = find_median_u8(neighborhood, 27)
 
     return result
+
+
+@njit(fastmath=True)
+def pad_array_edge_3d(data, pad_width):
+    """
+    Manual edge padding for 3D arrays that's compatible with Numba.
+
+    Parameters:
+    -----------
+    data : ndarray
+        Input 3D array to be padded
+    pad_width : int
+        Width of padding to add on all sides
+
+    Returns:
+    --------
+    padded : ndarray
+        Padded 3D array with edge values repeated
+    """
+    depth, height, width = data.shape
+    padded_shape = (depth + 2 * pad_width, height + 2 * pad_width, width + 2 * pad_width)
+    padded = np.zeros(padded_shape, dtype=data.dtype)
+
+    # Copy the original data to the center of the padded array
+    padded[pad_width:pad_width + depth, pad_width:pad_width + height, pad_width:pad_width + width] = data
+
+    # Pad along z-axis (depth)
+    for z in range(pad_width):
+        # Top padding - replicate first slice
+        padded[z, pad_width:pad_width + height, pad_width:pad_width + width] = data[0]
+        # Bottom padding - replicate last slice
+        padded[pad_width + depth + z, pad_width:pad_width + height, pad_width:pad_width + width] = data[-1]
+
+    # Pad along y-axis (height)
+    for y in range(pad_width):
+        # Top rows
+        padded[:, y, pad_width:pad_width + width] = padded[:, pad_width, pad_width:pad_width + width]
+        # Bottom rows
+        padded[:, pad_width + height + y, pad_width:pad_width + width] = padded[:, pad_width + height - 1,
+                                                                         pad_width:pad_width + width]
+
+    # Pad along x-axis (width)
+    for x in range(pad_width):
+        # Left columns
+        padded[:, :, x] = padded[:, :, pad_width]
+        # Right columns
+        padded[:, :, pad_width + width + x] = padded[:, :, pad_width + width - 1]
+
+    return padded
+
+@njit(parallel=True, fastmath=True)
+def anisotropic_diffusion_3d(data, iterations=5, kappa=50.0, gamma=0.1):
+    """
+    Apply 3D anisotropic diffusion to smooth noise while preserving edges.
+
+    Parameters:
+    -----------
+    data : ndarray (uint8)
+        Input 3D volume
+    iterations : int
+        Number of diffusion iterations
+    kappa : float
+        Conductance parameter (controls edge sensitivity)
+    gamma : float
+        Rate of diffusion (step size)
+
+    Returns:
+    --------
+    filtered : ndarray (uint8)
+        Filtered 3D volume
+    """
+    # Convert to float for processing
+    img = data.astype(np.float32)
+
+    for _ in range(iterations):
+        # Create padded volume for gradient calculation
+        padded = pad_array_edge_3d(img, 1)
+
+        depth, height, width = img.shape
+        for z in prange(0, depth):
+            for y in range(0, height):
+                for x in range(0, width):
+                    # Calculate gradients in all 6 directions
+                    north = padded[z + 1, y + 1 + 1, x + 1] - padded[z + 1, y + 1, x + 1]
+                    south = padded[z + 1, y + 1 - 1, x + 1] - padded[z + 1, y + 1, x + 1]
+                    east = padded[z + 1, y + 1, x + 1 + 1] - padded[z + 1, y + 1, x + 1]
+                    west = padded[z + 1, y + 1, x + 1 - 1] - padded[z + 1, y + 1, x + 1]
+                    top = padded[z + 1 + 1, y + 1, x + 1] - padded[z + 1, y + 1, x + 1]
+                    bottom = padded[z + 1 - 1, y + 1, x + 1] - padded[z + 1, y + 1, x + 1]
+
+                    # Calculate diffusion coefficients
+                    cn = np.exp(-(north * north) / (kappa * kappa))
+                    cs = np.exp(-(south * south) / (kappa * kappa))
+                    ce = np.exp(-(east * east) / (kappa * kappa))
+                    cw = np.exp(-(west * west) / (kappa * kappa))
+                    ct = np.exp(-(top * top) / (kappa * kappa))
+                    cb = np.exp(-(bottom * bottom) / (kappa * kappa))
+
+                    # Update using weighted diffusion
+                    update = gamma * (
+                            cn * north + cs * south +
+                            ce * east + cw * west +
+                            ct * top + cb * bottom
+                    )
+
+                    img[z, y, x] += update
+
+    return np.clip(img, 0, 255).astype(np.uint8)

@@ -361,5 +361,5 @@ def process_volume_blocks(data, block_size=(256,256,256), threshold=0.1):
 
     return result
 
-def wavelet_denoise_3d_optimized(data):
-    return process_volume_blocks(data)
+def wavelet_denoise_3d_optimized(data, threshold=.1):
+    return process_volume_blocks(data, threshold=threshold)
